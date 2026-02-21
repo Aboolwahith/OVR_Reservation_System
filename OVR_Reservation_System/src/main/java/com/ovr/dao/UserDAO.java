@@ -55,4 +55,26 @@ public class UserDAO {
 
         return false;
     }
+    public boolean updatePassword(String username, String hashedPassword) {
+        // SQL query to update the password for a specific user
+        String sql = "UPDATE users SET password = ? WHERE username = ?";
+        
+        // Using try-with-resources for automatic closing of connection and statement
+        try (Connection conn = DBConnection.getConnection(); 
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            
+            ps.setString(1, hashedPassword); // Set the new hashed password
+            ps.setString(2, username);       // Set the username filter
+            
+            int rowsUpdated = ps.executeUpdate();
+            
+            // Return true if at least one row was updated
+            return rowsUpdated > 0;
+            
+        } catch (SQLException e) {
+            System.err.println("Error updating password for user: " + username);
+            e.printStackTrace();
+            return false;
+        }
+    }
 }
