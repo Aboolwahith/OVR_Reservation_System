@@ -2,79 +2,249 @@ package com.ovr.dao;
 
 import com.ovr.model.DashboardStats;
 import com.ovr.util.DBConnection;
-import java.sql.*;
-import java.util.*;
 
+import java.sql.*;
+
+/**
+ * OVR – Dashboard DAO
+ * All SQL queries are isolated here (DAO Pattern).
+ * Servlets NEVER contain raw SQL — only DAO calls.
+ */
 public class DashboardDAO {
 
-    public DashboardStats getCounts() {
-        DashboardStats stats = new DashboardStats();
-        String query = "SELECT " +
-                       "(SELECT COUNT(*) FROM rooms) as total, " +
-                       "(SELECT COUNT(*) FROM rooms WHERE status = 'AVAILABLE') as available, " +
-                       "(SELECT COUNT(*) FROM rooms WHERE status = 'OCCUPIED') as occupied, " +
-                       "(SELECT COUNT(*) FROM reservations WHERE status = 'CHECKED_IN') as active_guests, " +
-                       "(SELECT COUNT(*) FROM reservations WHERE DATE(check_in) = CURDATE()) as checkins_today, " +
-                       "(SELECT COUNT(*) FROM reservations WHERE DATE(check_out) = CURDATE()) as checkouts_today";
+    // ═══════════════════════════════════════════════════════════
+    //  MASTER METHOD — Builds entire DashboardStats in one call
+    // ═══════════════════════════════════════════════════════════
 
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(query);
-             ResultSet rs = ps.executeQuery()) {
-            if (rs.next()) {
-                stats.setTotalRooms(rs.getInt("total"));
-                stats.setAvailableRooms(rs.getInt("available"));
-                stats.setOccupiedRooms(rs.getInt("occupied"));
-                stats.setActiveGuests(rs.getInt("active_guests"));
-                stats.setTodayCheckIns(rs.getInt("checkins_today"));
-                stats.setTodayCheckOuts(rs.getInt("checkouts_today"));
-            }
-        } catch (SQLException e) { e.printStackTrace(); }
+    /**
+     * Fetches all KPIs in a single DB session for efficiency.
+     * @param userId  – logged-in receptionist's user_id (for notifications)
+     * @return fully populated DashboardStats bean
+     */
+    public DashboardStats getDashboardStats(int userId) throws SQLException {
+        DashboardStats stats = new DashboardStats();
+
+        try (Connection conn = DBConnection.getConnection()) {
+
+            stats.setTotalRooms(getTotalRooms(conn));
+            stats.setAvailableRooms(getRoomCountByStatus(conn, "AVAILABLE"));
+            stats.setOccupiedRooms(getRoomCountByStatus(conn, "OCCUPIED"));
+            stats.setMaintenanceRooms(getRoomCountByStatus(conn, "MAINTENANCE"));
+            stats.calculateOccupancyRate();   // Business formula applied here
+
+            stats.setTodayCheckIns(getTodayCheckIns(conn));
+            stats.setTodayCheckOuts(getTodayCheckOuts(conn));
+            stats.setTodayRevenue(getTodayRevenue(conn));
+
+            stats.setTotalGuests(getTotalGuests(conn));
+            stats.setActiveReservations(getActiveReservations(conn));
+            stats.setUnreadNotifications(getUnreadNotifications(conn, userId));
+        }
+
         return stats;
     }
 
-    public Map<String, Integer> getMonthlyReservations() {
-        Map<String, Integer> monthlyData = new LinkedHashMap<>();
-        String[] months = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-        for (String m : months) monthlyData.put(m, 0);
+    // ═══════════════════════════════════════════════════════════
+    //  ROOM QUERIES
+    // ═══════════════════════════════════════════════════════════
 
-        String sql = "SELECT MONTHNAME(created_at) as month, COUNT(*) as count " +
-                     "FROM reservations WHERE YEAR(created_at) = YEAR(CURDATE()) " +
-                     "GROUP BY MONTH(created_at)";
-
-        try (Connection conn = DBConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
+    /**
+     * Total rooms in the hotel.
+     * Formula: COUNT(*) FROM rooms
+     */
+    private int getTotalRooms(Connection conn) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM rooms";
+        try (PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                String fullMonth = rs.getString("month");
-                if(fullMonth != null) {
-                    String mName = fullMonth.substring(0, 3);
-                    monthlyData.put(mName, rs.getInt("count"));
-                }
-            }
-        } catch (SQLException e) { e.printStackTrace(); }
-        return monthlyData;
+            return rs.next() ? rs.getInt(1) : 0;
+        }
     }
 
-    public List<Map<String, Object>> getUpcomingCheckOuts() {
-        List<Map<String, Object>> list = new ArrayList<>();
-        String sql = "SELECT g.full_name, r.room_number, res.check_out " +
-                     "FROM reservations res " +
-                     "JOIN guests g ON res.guest_id = g.guest_id " +
-                     "JOIN rooms r ON res.room_id = r.room_id " +
-                     "WHERE res.status = 'CHECKED_IN' " +
-                     "ORDER BY res.check_out ASC LIMIT 5";
-        
+    /**
+     * Count rooms by their operational status.
+     * Formula: COUNT(*) FROM rooms WHERE status = ?
+     * @param status  AVAILABLE | OCCUPIED | MAINTENANCE
+     */
+    private int getRoomCountByStatus(Connection conn, String status) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM rooms WHERE status = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, status);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  RESERVATION QUERIES
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Guests scheduled to check in TODAY.
+     * Counts BOOKED reservations with check_in = CURDATE()
+     */
+    private int getTodayCheckIns(Connection conn) throws SQLException {
+        String sql = """
+                SELECT COUNT(*) FROM reservations
+                WHERE check_in = CURDATE()
+                  AND status IN ('BOOKED', 'CHECKED_IN')
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            return rs.next() ? rs.getInt(1) : 0;
+        }
+    }
+
+    /**
+     * Guests scheduled to check out TODAY.
+     * Counts CHECKED_IN reservations with check_out = CURDATE()
+     */
+    private int getTodayCheckOuts(Connection conn) throws SQLException {
+        String sql = """
+                SELECT COUNT(*) FROM reservations
+                WHERE check_out = CURDATE()
+                  AND status IN ('CHECKED_IN', 'BOOKED')
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            return rs.next() ? rs.getInt(1) : 0;
+        }
+    }
+
+    /**
+     * Active reservations (BOOKED or CHECKED_IN).
+     * Used for the active reservations count card.
+     */
+    private int getActiveReservations(Connection conn) throws SQLException {
+        String sql = """
+                SELECT COUNT(*) FROM reservations
+                WHERE status IN ('BOOKED', 'CHECKED_IN')
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            return rs.next() ? rs.getInt(1) : 0;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  REVENUE QUERY
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Revenue generated from billing records for TODAY's check-ins.
+     * Formula: SUM(total_amount) WHERE reservation's check_in = CURDATE()
+     *
+     * JOIN path: billing → reservations → check_in date
+     */
+    private double getTodayRevenue(Connection conn) throws SQLException {
+        String sql = """
+                SELECT COALESCE(SUM(b.total_amount), 0)
+                FROM billing b
+                INNER JOIN reservations r ON b.reservation_id = r.reservation_id
+                WHERE r.check_in = CURDATE()
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            return rs.next() ? rs.getDouble(1) : 0.0;
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  GUEST & NOTIFICATION QUERIES
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Total registered guests in the system.
+     */
+    private int getTotalGuests(Connection conn) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM guests";
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            return rs.next() ? rs.getInt(1) : 0;
+        }
+    }
+
+    /**
+     * Unread notifications for the logged-in user.
+     * Linked via user_id FK in notifications table.
+     */
+    private int getUnreadNotifications(Connection conn, int userId) throws SQLException {
+        String sql = """
+                SELECT COUNT(*) FROM notifications
+                WHERE user_id = ?
+                """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  RECENT RESERVATIONS (for Activity Feed on Dashboard)
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Fetches the 5 most recent reservations for the activity feed table.
+     * Returns ResultSet — caller must close connection.
+     * NOTE: This method returns a disconnected result via a helper class.
+     *       For simplicity we pass back data via the RecentReservation inner class.
+     */
+    public java.util.List<RecentReservation> getRecentReservations() throws SQLException {
+        java.util.List<RecentReservation> list = new java.util.ArrayList<>();
+        String sql = """
+                SELECT r.reservation_number,
+                       g.full_name,
+                       rt.type_name,
+                       r.check_in,
+                       r.check_out,
+                       r.status
+                FROM reservations r
+                INNER JOIN guests  g  ON r.guest_id = g.guest_id
+                INNER JOIN rooms   rm ON r.room_id   = rm.room_id
+                INNER JOIN room_types rt ON rm.type_id = rt.type_id
+                ORDER BY r.created_at DESC
+                LIMIT 5
+                """;
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
             while (rs.next()) {
-                Map<String, Object> row = new HashMap<>();
-                row.put("guest", rs.getString("full_name"));
-                row.put("room", rs.getString("room_number"));
-                row.put("date", rs.getDate("check_out"));
-                list.add(row);
+                RecentReservation rr = new RecentReservation();
+                rr.reservationNumber = rs.getString("reservation_number");
+                rr.guestName         = rs.getString("full_name");
+                rr.roomType          = rs.getString("type_name");
+                rr.checkIn           = rs.getDate("check_in").toLocalDate().toString();
+                rr.checkOut          = rs.getDate("check_out").toLocalDate().toString();
+                rr.status            = rs.getString("status");
+                list.add(rr);
             }
-        } catch (SQLException e) { e.printStackTrace(); }
+        }
         return list;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  INNER DATA TRANSFER CLASS
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * Lightweight DTO for recent reservation rows.
+     * Public fields for easy JSP EL access via getters.
+     */
+    public static class RecentReservation {
+        private String reservationNumber;
+        private String guestName;
+        private String roomType;
+        private String checkIn;
+        private String checkOut;
+        private String status;
+
+        public String getReservationNumber() { return reservationNumber; }
+        public String getGuestName()         { return guestName; }
+        public String getRoomType()          { return roomType; }
+        public String getCheckIn()           { return checkIn; }
+        public String getCheckOut()          { return checkOut; }
+        public String getStatus()            { return status; }
     }
 }
