@@ -1,0 +1,344 @@
+@startuml OVR_FullSystem_Sequence
+!theme plain
+!pragma layout smetana
+skinparam dpi 100
+
+skinparam backgroundColor #F4F7F6
+skinparam sequence {
+  ArrowColor #00818A
+  LifeLineBorderColor #00818A
+  LifeLineBackgroundColor #E0F5F5
+  ParticipantBackgroundColor #2C3E50
+  ParticipantFontColor #FFFFFF
+  ParticipantBorderColor #00818A
+  ParticipantFontSize 13
+  ActorBackgroundColor #00818A
+  ActorFontColor #FFFFFF
+  ActorBorderColor #2C3E50
+  BoxBackgroundColor #F8FAFA
+  BoxBorderColor #00818A
+  NoteBackgroundColor #FFFDE7
+  NoteBorderColor #F39C12
+}
+
+skinparam titleFontSize 18
+skinparam titleFontColor #2C3E50
+
+title Ocean View Resort — Full System Sequence Diagram\n(Complete Operational Flow)
+
+actor "Receptionist" as R
+
+box "Presentation Layer (JSP)" #E8F8FF
+  participant "login.jsp" as LP
+  participant "dashboard.jsp" as DP
+  participant "add-reservation.jsp" as AP
+  participant "view-reservation.jsp" as VP
+  participant "bill.jsp" as BP
+  participant "help.jsp" as HP
+end box
+
+box "Filter Layer" #FFF3E0
+  participant "LoginFilter" as LF
+end box
+
+box "Controller Layer (Servlets)" #F3E5F5
+  participant "LoginServlet" as LC
+  participant "DashboardServlet" as DC
+  participant "AddReservationServlet" as AC
+  participant "ViewReservationServlet" as VC
+  participant "BillServlet" as BC
+  participant "HelpServlet" as HSV
+end box
+
+box "Service Layer" #E8F5E9
+  participant "AuthService" as AS
+  participant "ReservationService" as RS
+  participant "BillService" as BS
+  participant "DashboardService" as DS
+end box
+
+box "DAO Layer" #FFF8E1
+  participant "UserDAO" as UD
+  participant "ReservationDAO" as RD
+  participant "RoomTypeDAO" as RTD
+  participant "DashboardDAO" as DD
+end box
+
+box "Utility Layer" #FCE4EC
+  participant "PasswordHashUtil" as PH
+  participant "EmailUtil" as EU
+  participant "DBConnection\n<<Singleton>>" as DBC
+end box
+
+database "MySQL DB\n(ovr_reservation_db)" as DB
+
+'══════════════════════════════════════════
+' PHASE 1 — REGISTRATION
+'══════════════════════════════════════════
+== PHASE 1 : New User Registration ==
+
+R -> LP : Navigate to /register
+LP --> R : Show registration form
+
+R -> LC : POST /register\n(username, password, email)
+LC -> LF : doFilter(request)
+LF --> LC : Allow (public route)
+
+LC -> AS : register(username, password, email)
+AS -> PH : hashPassword(password)
+PH --> AS : SHA-256 hash
+
+AS -> UD : save(User)
+UD -> DBC : getConnection()
+DBC --> UD : Connection (Singleton)
+UD -> DB : INSERT INTO users\n(username, hash, email, role)
+DB --> UD : OK
+UD --> AS : true
+AS --> LC : Registration successful
+
+LC --> LP : redirect /login?success=registered
+LP --> R : Show login form
+
+'══════════════════════════════════════════
+' PHASE 2 — LOGIN
+'══════════════════════════════════════════
+== PHASE 2 : Login & Session Management ==
+
+R -> LP : Enter username + password
+LP -> LC : POST /login
+
+LC -> AS : login(username, password)
+AS -> UD : findByUsername(username)
+UD -> DB : SELECT * FROM users\nWHERE username = ?
+DB --> UD : User row
+UD --> AS : User object
+
+AS -> PH : checkPassword(plain, storedHash)
+PH --> AS : true / false
+
+alt Credentials Valid
+  AS --> LC : User object
+  LC -> LC : session.setAttribute\n("username", user)
+  LC --> DP : redirect /dashboard
+else Credentials Invalid
+  AS --> LC : null
+  LC --> LP : redirect /login?error=invalid
+  LP --> R : Show error message
+
+  '── Forgot Password ──
+  R -> LP : Click "Forgot Password"
+  LP -> LC : POST /reset-password (email)
+  LC -> AS : sendOTP(email)
+  AS -> EU : sendOTPEmail(to, otpCode)
+  EU --> AS : Email sent via Gmail SMTP
+  AS -> UD : updateOTP(username, otp, expiry)
+  UD -> DB : UPDATE users SET otp_code,\notp_expiry WHERE username=?
+  DB --> UD : OK
+
+  R -> LP : Enter OTP code
+  LC -> AS : verifyOTP(username, otp)
+  AS -> UD : findByUsername(username)
+  UD -> DB : SELECT otp_code, otp_expiry
+  DB --> UD : OTP data
+
+  alt OTP Valid & Not Expired
+    AS --> LC : true
+    LC --> LP : Allow password reset
+    R -> LC : POST new password
+    LC -> AS : updatePassword(username, newPass)
+    AS -> PH : hashPassword(newPass)
+    PH --> AS : new hash
+    AS -> UD : save(updatedUser)
+    UD -> DB : UPDATE users SET\npassword_hash
+    DB --> UD : OK
+    LC --> LP : redirect /login?success=reset
+  else OTP Expired or Wrong
+    AS --> LC : false
+    LC --> LP : redirect error=invalid_otp
+  end
+end
+
+'══════════════════════════════════════════
+' PHASE 3 — EVERY REQUEST FILTERED
+'══════════════════════════════════════════
+== PHASE 3 : Session Protection (LoginFilter on every request) ==
+
+R -> LF : Any HTTP Request to\nprotected route
+LF -> LF : Check session\n"username" attribute
+
+alt Session Exists
+  LF --> LC : chain.doFilter()\n— Allow request
+else Session Missing
+  LF --> LP : redirect /login
+  LP --> R : Forced back to login
+end
+
+'══════════════════════════════════════════
+' PHASE 4 — DASHBOARD
+'══════════════════════════════════════════
+== PHASE 4 : View Dashboard ==
+
+R -> DP : GET /dashboard
+DP -> DC : doGet()
+DC -> DS : getStats()
+DS -> DD : getStats()
+DD -> DBC : getConnection()
+DBC --> DD : Connection
+DD -> DB : SELECT COUNT(*) total reservations\nSELECT check-ins today\nSELECT check-outs today\nSELECT SUM(revenue) today
+DB --> DD : Aggregated results
+DD --> DS : DashboardStats object
+DS --> DC : DashboardStats
+
+DC -> DC : request.setAttribute\n(totalReservations,\ntodayCheckIns,\ntodayCheckOuts,\ntodayRevenue)
+DC --> DP : forward to dashboard.jsp
+DP --> R : Display stats cards\n& quick actions
+
+'══════════════════════════════════════════
+' PHASE 5 — ADD RESERVATION
+'══════════════════════════════════════════
+== PHASE 5 : Add New Reservation ==
+
+R -> AP : GET /add-reservation
+AP -> AC : doGet()
+AC -> RTD : getAllRoomTypes()
+RTD -> DB : SELECT * FROM room_types
+DB --> RTD : STANDARD / DELUXE / SUITE
+RTD --> AC : List<RoomType>
+AC --> AP : forward with room types
+AP --> R : Show reservation form\nwith room dropdown
+
+R -> AP : Fill form:\nguest name, address,\ncontact (10 digits),\nroom type, check-in,\ncheck-out dates
+AP -> AP : JavaScript validation:\n- 10-digit phone regex\n- check-in >= today\n- check-out > check-in\n- live nights calculator
+
+AP -> AC : POST /add-reservation
+
+AC -> RS : isValidDateRange\n(checkIn, checkOut)
+RS --> AC : true
+
+AC -> RS : generateReservationNumber()
+RS -> RS : "OVR-" + YYYYMMDD\n+ UUID(4 chars)
+RS --> AC : e.g. OVR-20260305-AB12
+
+AC -> RS : addReservation(reservation)
+RS -> RD : save(reservation)
+RD -> DBC : getConnection()
+DBC --> RD : Connection
+RD -> DB : INSERT INTO reservations\n(number, guest_name, address,\ncontact, room_type_id,\ncheck_in, check_out, created_at)
+DB --> RD : Row inserted OK
+RD --> RS : true
+RS --> AC : true
+
+AC --> VP : redirect /view-reservation\n?number=OVR-20260305-AB12
+VP --> R : Reservation saved!\nDetails displayed
+
+'══════════════════════════════════════════
+' PHASE 6 — VIEW RESERVATION
+'══════════════════════════════════════════
+== PHASE 6 : View / Search Reservation ==
+
+R -> VP : GET /view-reservation
+VP -> VC : doGet()
+
+VC -> RS : getAllReservations()
+RS -> RD : getAllReservations()
+RD -> DB : SELECT * FROM reservations\nORDER BY created_at DESC
+DB --> RD : All reservation rows
+RD --> RS : List<Reservation>
+RS --> VC : List<Reservation>
+
+VC --> VP : forward (allReservations list)
+VP --> R : Show:\n- Tab 1: Type Number\n- Tab 2: Select from Dropdown\n- All reservations table
+
+alt Receptionist types / selects reservation number
+  R -> VP : Enter or select\nreservation number
+  VP -> VC : GET /view-reservation\n?number=OVR-XXXX
+
+  VC -> RS : getReservation(number)
+  RS -> RD : findByNumber(number)
+  RD -> DB : SELECT * FROM reservations\nWHERE reservation_number = ?
+  DB --> RD : Reservation row
+  RD --> RS : Reservation object
+  RS --> VC : Reservation object
+
+  VC -> RTD : findById(roomTypeId)
+  RTD -> DB : SELECT * FROM room_types\nWHERE room_type_id = ?
+  DB --> RTD : RoomType
+  RTD --> VC : RoomType object
+
+  VC --> VP : forward (reservation + roomType)
+  VP --> R : Display full guest details,\nroom info, dates, booking time
+
+else Reservation not found
+  RS --> VC : null
+  VC --> VP : redirect ?error=not_found
+  VP --> R : Show error message
+end
+
+'══════════════════════════════════════════
+' PHASE 7 — BILLING
+'══════════════════════════════════════════
+== PHASE 7 : Generate & Print Bill ==
+
+R -> VP : Click "Generate Bill"
+VP -> BC : GET /bill\n?number=OVR-XXXX
+
+BC -> RS : getReservation(number)
+RS -> RD : findByNumber(number)
+RD -> DB : SELECT reservation details
+DB --> RD : Reservation row
+RD --> RS : Reservation object
+RS --> BC : Reservation object
+
+BC -> RTD : findById(roomTypeId)
+RTD -> DB : SELECT price_per_night,\ntype_name, room_code
+DB --> RTD : RoomType
+RTD --> BC : RoomType
+
+BC -> BS : calculateNights\n(checkIn, checkOut)
+BS -> BS : nights = checkOut - checkIn\nif nights < 1 → nights = 1
+BS --> BC : long nights
+
+BC -> BS : calculateTotal\n(nights, pricePerNight)
+BS -> BS : total = nights × rate\ne.g. 3 × 12000 = 36000
+BS --> BC : double totalAmount
+
+BC -> BC : request.setAttribute\n(reservation, roomType,\nnights, total)
+BC --> BP : forward to bill.jsp
+BP --> R : Invoice displayed:\nguest info, room, dates,\nnights, total amount (Rs.)
+
+R -> BP : Click "Print Invoice"
+BP -> BP : window.print()\n@media print hides sidebar
+BP --> R : Clean A4 invoice\nprinted / saved as PDF
+
+'══════════════════════════════════════════
+' PHASE 8 — HELP & AI ASSISTANT
+'══════════════════════════════════════════
+== PHASE 8 : Help & OVR AI Assistant ==
+
+R -> HP : GET /help
+HP -> HSV : doGet()
+HSV --> HP : forward to help.jsp
+HP --> R : Help page loaded:\n- Hero banner\n- 8 topic cards\n- Room reference table\n- Floating robot button
+
+R -> HP : Click robot button\n(bottom-right)
+HP -> HP : toggleChat()\nChat window opens
+
+HP --> R : Time-based greeting:\n☀️ Good Morning / 🌅 Evening / 🌙 Night\n+ username from session
+
+R -> HP : Click topic button\ne.g. "Add Reservation"
+HP -> HP : addUserMessage(topic)\nshowTyping() — 1.3s delay
+HP -> HP : Knowledge Base lookup\n(JavaScript KB object)
+HP --> R : Bot response displayed:\nstep-by-step instructions\n+ tip box\n+ notification sound 🔔
+
+'══════════════════════════════════════════
+' PHASE 9 — LOGOUT
+'══════════════════════════════════════════
+== PHASE 9 : Logout ==
+
+R -> LP : Click "Sign Out"
+LP -> LC : GET /logout
+LC -> LC : session.invalidate()
+LC --> LP : redirect /login
+LP --> R : Logged out —\nlogin page shown
+
+@enduml

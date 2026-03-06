@@ -1,0 +1,175 @@
+@startuml OVR_ClassDiagram
+!pragma layout smetana
+
+!theme plain
+skinparam backgroundColor #F4F7F6
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #00818A
+  HeaderBackgroundColor #2C3E50
+  HeaderFontColor #FFFFFF
+  FontColor #1a252f
+}
+skinparam note {
+  BackgroundColor #E0F5F5
+  BorderColor #00818A
+}
+
+title Ocean View Resort — Class Diagram
+
+package "com.ovr.model" #E8F8F8 {
+  class User {
+    - userId : int
+    - username : String
+    - passwordHash : String
+    - email : String
+    - role : String
+    - otpCode : String
+    - otpExpiry : Timestamp
+    + getUsername() : String
+    + getEmail() : String
+    + getRole() : String
+  }
+
+  class Reservation {
+    - reservationId : int
+    - reservationNumber : String
+    - guestName : String
+    - address : String
+    - contactNumber : String
+    - roomTypeId : int
+    - checkInDate : Date
+    - checkOutDate : Date
+    - createdAt : Timestamp
+    + getReservationNumber() : String
+    + getGuestName() : String
+    + getCheckInDate() : Date
+    + getCheckOutDate() : Date
+  }
+
+  class RoomType {
+    - roomTypeId : int
+    - roomCode : String
+    - typeName : String
+    - pricePerNight : double
+    + getRoomCode() : String
+    + getTypeName() : String
+    + getPricePerNight() : double
+  }
+
+  class DashboardStats {
+    - totalReservations : int
+    - todayCheckIns : int
+    - todayCheckOuts : int
+    - todayRevenue : double
+    + getTotalReservations() : int
+    + getTodayRevenue() : double
+  }
+}
+
+package "com.ovr.dao" #FFF8E8 {
+  class DBConnection {
+    - {static} connection : Connection
+    - DBConnection()
+    + {static} getConnection() : Connection
+  }
+
+  class UserDAO {
+    + findByUsername(username : String) : User
+    + save(user : User) : boolean
+    + updateOTP(username, otp, expiry) : void
+    + deleteUser(username : String) : void
+  }
+
+  class ReservationDAO {
+    + save(r : Reservation) : boolean
+    + findByNumber(number : String) : Reservation
+    + getAllReservations() : List<Reservation>
+    + delete(number : String) : boolean
+  }
+
+  class RoomTypeDAO {
+    + getAllRoomTypes() : List<RoomType>
+    + findById(id : int) : RoomType
+  }
+
+  class DashboardDAO {
+    + getStats() : DashboardStats
+  }
+}
+
+package "com.ovr.service" #F0F8E8 {
+  class AuthService {
+    - userDAO : UserDAO
+    + login(username, password) : User
+    + register(username, password, email) : boolean
+    + verifyOTP(username, otp) : boolean
+    + sendOTP(email) : String
+  }
+
+  class ReservationService {
+    - reservationDAO : ReservationDAO
+    + addReservation(r : Reservation) : boolean
+    + getReservation(number : String) : Reservation
+    + getAllReservations() : List<Reservation>
+    + generateReservationNumber() : String
+    + isValidDateRange(in : Date, out : Date) : boolean
+  }
+
+  class BillService {
+    + calculateNights(in : Date, out : Date) : long
+    + calculateTotal(nights : long, rate : double) : double
+  }
+
+  class DashboardService {
+    - dashboardDAO : DashboardDAO
+    + getStats() : DashboardStats
+  }
+}
+
+package "com.ovr.util" #F8F0F8 {
+  class PasswordHashUtil {
+    + {static} hashPassword(password : String) : String
+    + {static} checkPassword(plain, hash : String) : boolean
+  }
+
+  class EmailUtil {
+    + {static} sendOTPEmail(to, otp : String) : void
+  }
+}
+
+package "com.ovr.filter" #FFF0F0 {
+  class LoginFilter {
+    + doFilter(req, res, chain) : void
+  }
+}
+
+' Relationships
+DBConnection <.. UserDAO : <<uses>>
+DBConnection <.. ReservationDAO : <<uses>>
+DBConnection <.. RoomTypeDAO : <<uses>>
+DBConnection <.. DashboardDAO : <<uses>>
+
+AuthService --> UserDAO
+AuthService --> PasswordHashUtil
+AuthService --> EmailUtil
+
+ReservationService --> ReservationDAO
+
+DashboardService --> DashboardDAO
+
+Reservation "many" --> "1" RoomType : roomTypeId (FK)
+
+note right of DBConnection
+  <<Singleton>>
+  Only ONE instance
+  ever created
+end note
+
+note right of LoginFilter
+  @WebFilter("/*")
+  Protects all routes
+  except /login /register
+end note
+
+@enduml

@@ -1,0 +1,198 @@
+@startuml OVR_EER_Diagram
+!theme plain
+skinparam backgroundColor #F4F7F6
+
+skinparam class {
+  BackgroundColor #FFFFFF
+  BorderColor #00818A
+  HeaderBackgroundColor #2C3E50
+  HeaderFontColor #FFFFFF
+  FontColor #1a252f
+  FontSize 12
+}
+
+skinparam note {
+  BackgroundColor #E0F5F5
+  BorderColor #00818A
+}
+
+skinparam arrow {
+  Color #00818A
+  FontColor #2C3E50
+  FontSize 11
+}
+
+title Ocean View Resort — Enhanced Entity Relationship (EER) Diagram\n(With OOP Concepts: Specialisation, Generalisation, Constraints)
+
+' ══════════════════════════════════════════
+' SUPERCLASS — USER (Generalisation)
+' ══════════════════════════════════════════
+
+class "USER\n<<Superclass / Generalisation>>" as USER {
+  <<PK>> user_id : INT
+  ..mandatory attributes..
+  username : VARCHAR(50) {UNIQUE}
+  password_hash : VARCHAR(255)
+  email : VARCHAR(100) {UNIQUE}
+  role : VARCHAR(20)
+  ..optional attributes..
+  otp_code : VARCHAR(10)
+  otp_expiry : TIMESTAMP
+  ..constraints..
+  {NOT NULL: username, password_hash, email, role}
+}
+
+' ══════════════════════════════════════════
+' SUBCLASSES — Specialisation of USER
+' (Disjoint, Total Participation)
+' ══════════════════════════════════════════
+
+class "RECEPTIONIST\n<<Subclass>>" as REC {
+  role = 'RECEPTIONIST'
+  ..inherited from USER..
+  + canAddReservation()
+  + canViewReservation()
+  + canGenerateBill()
+  + canViewDashboard()
+  + canAccessHelp()
+}
+
+note right of REC
+  <<Specialisation>>
+  Disjoint constraint:
+  A user is EITHER Receptionist
+  Only one role per account
+  Total participation:
+  Every user MUST have a role
+end note
+
+' ══════════════════════════════════════════
+' ROOM TYPE — Lookup / Reference Entity
+' ══════════════════════════════════════════
+
+class "ROOM_TYPE\n<<Reference Entity>>" as RT {
+  <<PK>> room_type_id : INT
+  ..
+  room_code : VARCHAR(20) {UNIQUE}
+  type_name : VARCHAR(50)
+  price_per_night : DECIMAL(10,2)
+  ..constraints..
+  {NOT NULL: all fields}
+  {CHECK: price_per_night > 0}
+}
+
+note top of RT
+  <<Weak Entity Dependency>>
+  RESERVATION cannot exist
+  without a valid ROOM_TYPE
+  Pre-seeded — 3 fixed types
+  OVR_001 / OVR_002 / OVR_003
+end note
+
+' ══════════════════════════════════════════
+' RESERVATION — Core Weak/Strong Entity
+' ══════════════════════════════════════════
+
+class "RESERVATION\n<<Core Transaction Entity>>" as RES {
+  <<PK>> reservation_id : INT
+  ..identifying attribute..
+  reservation_number : VARCHAR(30) {UNIQUE}
+  ..guest attributes (embedded)..
+  guest_name : VARCHAR(100)
+  address : TEXT
+  contact_number : VARCHAR(15)
+  ..foreign key..
+  <<FK>> room_type_id : INT
+  ..temporal attributes..
+  check_in_date : DATE
+  check_out_date : DATE
+  created_at : TIMESTAMP {DEFAULT NOW()}
+  ..derived attributes..
+  / total_nights : (check_out - check_in)
+  / total_cost : (nights × price_per_night)
+  ..constraints..
+  {NOT NULL: all fields}
+  {CHECK: check_out > check_in}
+  {CHECK: contact_number ~ /^\d{10}$/}
+}
+
+note left of RES
+  <<Derived Attributes>>
+  total_nights and total_cost
+  are NOT stored in DB
+  Calculated at runtime by
+  BillService.calculateNights()
+  BillService.calculateTotal()
+end note
+
+' ══════════════════════════════════════════
+' BILL — Derived / Computed Concept
+' ══════════════════════════════════════════
+
+class "BILL\n<<Derived / Transient>>" as BILL {
+  <<not stored in DB>>
+  ..computed at runtime..
+  / nights : long
+  / total_amount : double
+  ..source..
+  reservation_number : String
+  room_type_name : String
+  price_per_night : double
+  check_in_date : Date
+  check_out_date : Date
+}
+
+note bottom of BILL
+  <<Transient Entity>>
+  Bill is NOT a separate DB table
+  Computed on-the-fly by BillService
+  Formula:
+  nights = checkOut − checkIn
+  total  = nights × pricePerNight
+  minimum charge = 1 night always
+end note
+
+' ══════════════════════════════════════════
+' RELATIONSHIPS WITH CARDINALITY
+' ══════════════════════════════════════════
+
+USER <|-- REC : <<generalisation>>\n{disjoint, total}
+
+REC "1" --> "0..*" RES : creates >\nOne receptionist\ncreates zero or\nmany reservations
+
+RT "1" --> "0..*" RES : assigned to >\nOne room type\nappears in zero\nor many reservations
+
+RES "1" ..> "1" BILL : <<derives>>\nEach reservation\ngenerates exactly\none computed bill
+
+' ══════════════════════════════════════════
+' DATABASE CONSTRAINTS SUMMARY
+' ══════════════════════════════════════════
+
+note as CONSTRAINTS
+  <<Database Integrity Constraints>>
+  ─────────────────────────────────────
+  PRIMARY KEYS:
+    user_id, room_type_id, reservation_id
+    (all AUTO_INCREMENT)
+
+  FOREIGN KEY:
+    reservations.room_type_id
+    → room_types.room_type_id
+    ON DELETE RESTRICT
+    ON UPDATE CASCADE
+
+  UNIQUE CONSTRAINTS:
+    users.username
+    users.email
+    room_types.room_code
+    reservations.reservation_number
+
+  APPLICATION-LEVEL CONSTRAINTS:
+    check_out_date > check_in_date
+    contact_number must be 10 digits
+    check_in_date >= today (no past dates)
+    password stored as SHA-256 hash only
+    OTP expires after 5 minutes
+end note
+
+@enduml

@@ -1,0 +1,47 @@
+@startuml OVR_Sequence_Login
+!theme plain
+skinparam backgroundColor #F4F7F6
+skinparam sequence {
+  ArrowColor #00818A
+  LifeLineBorderColor #2C3E50
+  ParticipantBackgroundColor #2C3E50
+  ParticipantFontColor #FFFFFF
+  ParticipantBorderColor #00818A
+}
+
+title Sequence Diagram 1 — User Login & Authentication
+
+actor "Receptionist" as R
+participant "login.jsp" as V
+participant "LoginFilter" as F
+participant "LoginServlet" as C
+participant "AuthService" as S
+participant "UserDAO" as D
+database "MySQL DB" as DB
+
+R -> V : Enter username & password
+V -> C : HTTP POST /login
+C -> F : doFilter(request)
+F -> F : Check session attribute
+F -> C : No session — allow login page
+
+C -> S : login(username, password)
+S -> D : findByUsername(username)
+D -> DB : SELECT * FROM users WHERE username=?
+DB --> D : ResultSet row
+D --> S : User object
+
+S -> S : PasswordHashUtil.checkPassword(plain, hash)
+
+alt Valid credentials
+  S --> C : User object
+  C -> C : session.setAttribute("username", user)
+  C --> V : redirect /dashboard
+  V --> R : Dashboard page displayed
+else Invalid credentials
+  S --> C : null
+  C --> V : redirect /login?error=invalid
+  V --> R : Error message shown
+end
+
+@enduml

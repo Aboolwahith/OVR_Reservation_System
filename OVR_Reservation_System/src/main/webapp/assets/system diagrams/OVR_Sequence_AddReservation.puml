@@ -1,0 +1,49 @@
+@startuml OVR_Sequence_AddReservation
+!theme plain
+skinparam backgroundColor #F4F7F6
+skinparam sequence {
+  ArrowColor #00818A
+  LifeLineBorderColor #2C3E50
+  ParticipantBackgroundColor #2C3E50
+  ParticipantFontColor #FFFFFF
+}
+
+title Sequence Diagram 2 — Add New Reservation
+
+actor "Receptionist" as R
+participant "add-reservation.jsp" as V
+participant "AddReservationServlet" as C
+participant "ReservationService" as S
+participant "ReservationDAO" as D
+database "MySQL DB" as DB
+
+R -> V : GET /add-reservation
+V --> R : Show form with room types
+
+R -> V : Fill guest details,\nselect room, set dates
+V -> V : JS client-side validation\n(10-digit phone, date range)
+
+V -> C : HTTP POST /add-reservation
+
+C -> S : isValidDateRange(checkIn, checkOut)
+S --> C : true / false
+
+alt Invalid date range
+  C --> V : redirect ?error=invalid_dates
+  V --> R : Show error message
+end
+
+C -> S : generateReservationNumber()
+S --> C : "OVR-20260305-AB12"
+
+C -> S : addReservation(reservation)
+S -> D : save(reservation)
+D -> DB : INSERT INTO reservations
+DB --> D : OK
+D --> S : true
+S --> C : true
+
+C --> V : redirect /view-reservation?number=OVR-20260305-AB12
+V --> R : Reservation saved — details shown
+
+@enduml

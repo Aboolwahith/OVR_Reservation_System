@@ -1,0 +1,50 @@
+@startuml OVR_Sequence_GenerateBill
+!theme plain
+skinparam backgroundColor #F4F7F6
+skinparam sequence {
+  ArrowColor #00818A
+  LifeLineBorderColor #2C3E50
+  ParticipantBackgroundColor #2C3E50
+  ParticipantFontColor #FFFFFF
+}
+
+title Sequence Diagram 3 — Generate & Print Bill
+
+actor "Receptionist" as R
+participant "view-reservation.jsp" as V1
+participant "bill.jsp" as V2
+participant "BillServlet" as C
+participant "ReservationService" as RS
+participant "BillService" as BS
+participant "RoomTypeDAO" as D
+database "MySQL DB" as DB
+
+R -> V1 : Click "Generate Bill"
+V1 -> C : GET /bill?number=OVR-XXXX
+
+C -> RS : getReservation(number)
+RS -> DB : SELECT * FROM reservations\nWHERE reservation_number=?
+DB --> RS : Reservation object
+RS --> C : Reservation object
+
+C -> D : findById(roomTypeId)
+D -> DB : SELECT * FROM room_types\nWHERE room_type_id=?
+DB --> D : RoomType (rate, name)
+D --> C : RoomType object
+
+C -> BS : calculateNights(checkIn, checkOut)
+BS --> C : nights (minimum 1)
+
+C -> BS : calculateTotal(nights, pricePerNight)
+note right : Total = nights × rate\ne.g. 3 × 12000 = Rs.36,000
+BS --> C : totalAmount
+
+C -> C : request.setAttribute(bill data)
+C --> V2 : forward to bill.jsp
+V2 --> R : Invoice displayed
+
+R -> V2 : Click "Print Invoice"
+V2 -> V2 : window.print()\n(sidebar hides via @media print)
+V2 --> R : Clean A4 invoice printed
+
+@enduml

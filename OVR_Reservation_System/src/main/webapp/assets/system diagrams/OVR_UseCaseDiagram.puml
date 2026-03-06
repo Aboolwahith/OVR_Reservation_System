@@ -1,0 +1,60 @@
+@startuml OVR_UseCaseDiagram
+!theme plain
+skinparam backgroundColor #F4F7F6
+skinparam actorStyle awesome
+skinparam usecase {
+  BackgroundColor #E0F5F5
+  BorderColor #00818A
+  FontColor #1a252f
+}
+skinparam actor {
+  BackgroundColor #2C3E50
+  FontColor white
+}
+
+title Ocean View Resort — Use Case Diagram
+
+actor "Receptionist" as R
+
+rectangle "Ocean View Resort Reservation System" {
+
+  usecase "UC01\nLogin to System" as UC01
+  usecase "UC02\nLogout" as UC02
+  usecase "UC03\nRegister Account" as UC03
+  usecase "UC04\nReset Password (OTP)" as UC04
+  usecase "UC05\nView Dashboard" as UC05
+  usecase "UC06\nAdd New Reservation" as UC06
+  usecase "UC07\nView Reservation" as UC07
+  usecase "UC08\nGenerate & Print Bill" as UC08
+  usecase "UC09\nAccess Help & AI Assistant" as UC09
+  usecase "UC10\nAuto-Generate\nReservation Number" as UC10
+  usecase "UC11\nSend OTP Email" as UC11
+
+}
+
+R --> UC01
+R --> UC02
+R --> UC03
+R --> UC04
+R --> UC05
+R --> UC06
+R --> UC07
+R --> UC08
+R --> UC09
+
+UC06 ..> UC10 : <<include>>
+UC08 ..> UC07 : <<include>>
+UC04 ..> UC11 : <<include>>
+UC04 .up.> UC01 : <<extend>>
+
+note bottom of UC10
+  Auto-generated format:
+  OVR-YYYYMMDD-XXXX
+end note
+
+note bottom of UC11
+  Gmail SMTP
+  OTP valid 5 minutes
+end note
+
+@enduml

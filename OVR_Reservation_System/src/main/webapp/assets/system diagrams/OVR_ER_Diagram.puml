@@ -1,0 +1,98 @@
+@startuml OVR_ER_Diagram
+!theme plain
+skinparam backgroundColor #F4F7F6
+
+skinparam entity {
+  BackgroundColor #FFFFFF
+  BorderColor #00818A
+  FontColor #1a252f
+}
+
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #F39C12
+}
+
+title Ocean View Resort — Entity Relationship (ER) Diagram
+
+' ══════════════════════════
+' ENTITIES
+' ══════════════════════════
+
+entity "USER" as USER {
+  * **user_id** : INT <<PK>> <<AUTO_INCREMENT>>
+  --
+  * username : VARCHAR(50) <<UNIQUE>>
+  * password_hash : VARCHAR(255)
+  * email : VARCHAR(100) <<UNIQUE>>
+  * role : VARCHAR(20)
+  otp_code : VARCHAR(10)
+  otp_expiry : TIMESTAMP
+}
+
+entity "ROOM_TYPE" as RT {
+  * **room_type_id** : INT <<PK>> <<AUTO_INCREMENT>>
+  --
+  * room_code : VARCHAR(20) <<UNIQUE>>
+  * type_name : VARCHAR(50)
+  * price_per_night : DECIMAL(10,2)
+}
+
+entity "RESERVATION" as RES {
+  * **reservation_id** : INT <<PK>> <<AUTO_INCREMENT>>
+  --
+  * reservation_number : VARCHAR(30) <<UNIQUE>>
+  * guest_name : VARCHAR(100)
+  * address : TEXT
+  * contact_number : VARCHAR(15)
+  * room_type_id : INT <<FK>>
+  * check_in_date : DATE
+  * check_out_date : DATE
+  * created_at : TIMESTAMP
+}
+
+' ══════════════════════════
+' RELATIONSHIPS
+' ══════════════════════════
+
+USER ||--o{ RESERVATION : "creates\n(1 user creates\n0..* reservations)"
+
+RT ||--o{ RESERVATION : "assigned to\n(1 room type\nused in 0..*\nreservations)"
+
+' ══════════════════════════
+' NOTES
+' ══════════════════════════
+
+note right of USER
+  <<Authentication Entity>>
+  - role = 'RECEPTIONIST'
+  - password never stored plain
+  - SHA-256 hash only
+  - OTP expires in 5 minutes
+end note
+
+note right of RT
+  <<Lookup / Reference Entity>>
+  Pre-seeded data:
+  OVR_001 → STANDARD  Rs.8,000
+  OVR_002 → DELUXE    Rs.12,000
+  OVR_003 → SUITE     Rs.18,000
+end note
+
+note right of RES
+  <<Core Transaction Entity>>
+  - reservation_number auto-generated
+    format: OVR-YYYYMMDD-XXXX
+  - created_at auto set by DB
+  - check_out > check_in enforced
+    by application logic
+end note
+
+note bottom of RES
+  FOREIGN KEY:
+  reservations.room_type_id
+  → room_types.room_type_id
+  (ON DELETE RESTRICT)
+end note
+
+@enduml
