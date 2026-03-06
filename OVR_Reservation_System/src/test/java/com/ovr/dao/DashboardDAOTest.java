@@ -10,7 +10,7 @@ public class DashboardDAOTest {
 
     @Test
     void testDashboardDataFetch() {
-        DashboardStats stats = dao.getCounts();
+        DashboardStats stats = dao.getcounts();
         assertNotNull(stats);
         assertTrue(stats.getTotalRooms() >= 0);
         System.out.println("Counts Verified: " + stats.getTotalRooms() + " rooms found.");
