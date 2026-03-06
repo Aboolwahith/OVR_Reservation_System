@@ -35,13 +35,6 @@
             </a>
         </li>
         <li class="nav-item">
-            <a href="${pageContext.request.contextPath}/rooms"
-               class="nav-link ${activePage == 'rooms' ? 'active' : ''}">
-                <span class="nav-icon"><i class="fas fa-bed"></i></span>
-                <span class="nav-label">Room Management</span>
-            </a>
-        </li>
-        <li class="nav-item">
             <a href="${pageContext.request.contextPath}/reservations"
                class="nav-link ${activePage == 'reservations' ? 'active' : ''}">
                 <span class="nav-icon"><i class="fas fa-calendar-check"></i></span>
