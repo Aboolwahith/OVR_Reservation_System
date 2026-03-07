@@ -1,29 +1,39 @@
 package com.ovr.service;
 
+import java.sql.Date;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
 /**
- * BillService — pure business logic (no DB, no servlets).
- * Easy to unit-test with JUnit 5.
+ * ============================================================
+ *  CIS6003 — Ocean View Resort Reservation System
+ *  Service   : BillService
+ *  Purpose   : Calculates stay duration and total billing amount
+ *              Bill is NOT stored in DB — derived at runtime.
+ *  Author    : ST12345678
+ * ============================================================
  */
 public class BillService {
 
-    /**
-     * Calculate the number of nights between check-in and check-out.
-     * A same-day check-in/check-out = 1 night (minimum billable stay).
-     */
+    // ── Used by BillServlet (passes LocalDate from Reservation) ──────────────
     public long calculateNights(LocalDate checkIn, LocalDate checkOut) {
-        if (checkIn == null || checkOut == null) return 0;
+        if (checkIn == null || checkOut == null) return 1;
         long nights = ChronoUnit.DAYS.between(checkIn, checkOut);
-        return nights <= 0 ? 1 : nights;   // minimum 1 night
+        return Math.max(1, nights);
     }
 
-    /**
-     * Calculate total bill amount.
-     */
+    // ── Used by JUnit tests (passes java.sql.Date) ────────────────────────────
+    public long calculateNights(Date checkIn, Date checkOut) {
+        if (checkIn == null || checkOut == null) return 1;
+        long nights = ChronoUnit.DAYS.between(
+            checkIn.toLocalDate(),
+            checkOut.toLocalDate()
+        );
+        return Math.max(1, nights);
+    }
+
+    // ── Used by both BillServlet and JUnit tests ──────────────────────────────
     public double calculateTotal(long nights, double pricePerNight) {
-        if (nights <= 0 || pricePerNight <= 0) return 0.0;
         return nights * pricePerNight;
     }
 }
